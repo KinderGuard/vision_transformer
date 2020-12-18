@@ -1,16 +1,3 @@
-# Copyright 2020 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import functools
 import glob
@@ -41,21 +28,20 @@ from vit_jax import momentum_clip
 
 def make_update_fn(vit_fn, accum_steps):
 
-  # Update step, replicated over all TPUs/GPUs
+  # Update 단계, 모든 TPUs/GPUs에서 복제
   @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, batch, update_rng):
 
-    # Bind the rng key to the device id (which is unique across hosts)
-    # Note: This is only used for multi-host training (i.e. multiple computers
-    # each with multiple accelerators).
+    # rng key를 host간에 고유한 device id에 바인딩
+    # multi-host training에만 사용
     update_rng = jax.random.fold_in(update_rng, jax.lax.axis_index('batch'))
     update_rng, new_update_rng = jax.random.split(update_rng)
 
-    def cross_entropy_loss(*, logits, labels):
+    def cross_entropy_loss(*, logits, labels): # cross_entropy_loss식
       logp = jax.nn.log_softmax(logits)
       return -jnp.mean(jnp.sum(logp * labels, axis=1))
 
-    def loss_fn(params, images, labels):
+    def loss_fn(params, images, labels): # loss 구하기
       with flax.nn.stochastic(update_rng):
         logits = vit_fn(params, images, train=True)
       return cross_entropy_loss(logits=logits, labels=labels)
@@ -63,9 +49,9 @@ def make_update_fn(vit_fn, accum_steps):
     l, g = hyper.accumulate_gradient(
         jax.value_and_grad(loss_fn), opt.target, batch['image'], batch['label'],
         accum_steps)
-    g = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='batch'), g)
+    g = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='batch'), g) # gradient update
 
-    opt = opt.apply_gradient(g, learning_rate=lr)
+    opt = opt.apply_gradient(g, learning_rate=lr) # lr, g 적용
     return opt, l, new_update_rng
 
   return update_fn
@@ -78,7 +64,7 @@ def main(args):
 
   logger.info(f'Available devices: {jax.devices()}')
 
-  # Setup input pipeline
+  # input 파이프라인 Setup
   dataset_info = input_pipeline.get_dataset_info(args.dataset, 'train')
 
   ds_train = input_pipeline.get_data(
@@ -101,7 +87,7 @@ def main(args):
       tfds_manual_dir=args.tfds_manual_dir)
   logger.info(ds_test)
 
-  # Build VisionTransformer architecture
+  # VisionTransformer 아키텍쳐 빌드
   model = models.KNOWN_MODELS[args.model]
   VisionTransformer = model.partial(num_classes=dataset_info['num_classes'])
   _, params = VisionTransformer.init_by_shape(
@@ -116,21 +102,21 @@ def main(args):
       model_config=models.CONFIGS[args.model],
       logger=logger)
 
-  # pmap replicates the models over all TPUs/GPUs
+  # pmap으로 모든 TPUs/GPUs에 걸쳐 모델 복제
   vit_fn_repl = jax.pmap(VisionTransformer.call)
   update_fn_repl = make_update_fn(VisionTransformer.call, args.accum_steps)
 
-  # Create optimizer and replicate it over all TPUs/GPUs
+  # optimizer 만들고, 모든 TPUs/GPUs에 걸쳐 복제
   opt = momentum_clip.Optimizer(
       dtype=args.optim_dtype, grad_norm_clip=args.grad_norm_clip).create(params)
   opt_repl = flax_utils.replicate(opt)
 
-  # Delete referenes to the objects that are not needed anymore
+  # 더 이상 필요없는 것들 삭제
   del opt
   del params
 
   def copyfiles(paths):
-    """Small helper to copy files to args.copy_to using tf.io.gfile."""
+    """tf.io.gfile 사용해 args.copy_to로 파일 복사하는 함수"""
     if not args.copy_to:
       return
     for path in paths:
@@ -142,7 +128,7 @@ def main(args):
   total_steps = args.total_steps or (
       input_pipeline.DATASET_PRESETS[args.dataset]['total_steps'])
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
+  # 지연을 막기 위해 lr을 준비, pre-fetch함.
   lr_fn = hyper.create_learning_rate_schedule(total_steps, args.base_lr,
                                               args.decay_type,
                                               args.warmup_steps)
@@ -150,7 +136,7 @@ def main(args):
   update_rngs = jax.random.split(
       jax.random.PRNGKey(0), jax.local_device_count())
 
-  # Run training loop
+  # training loop 실행
   writer = metric_writers.create_default_writer(logdir, asynchronous=False)
   writer.write_hparams({k: v for k, v in vars(args).items() if v is not None})
   logger.info('Starting training loop; initial compile can take a while...')
@@ -173,10 +159,10 @@ def main(args):
                   f'ETA: {(time.time()-t0)/done*(1-done)/3600:.2f}h')
       copyfiles(glob.glob(f'{logdir}/*'))
 
-    # Run eval step
+    # test step 실행
     if ((args.eval_every and step % args.eval_every == 0) or
         (step == total_steps)):
-
+        # test 정확도
       accuracy_test = np.mean([
           c for batch in input_pipeline.prefetch(ds_test, args.prefetch)
           for c in (

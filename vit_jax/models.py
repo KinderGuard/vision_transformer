@@ -1,16 +1,3 @@
-# Copyright 2020 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import jax
 import jax.numpy as jnp
@@ -22,45 +9,43 @@ from vit_jax import models_resnet
 
 
 class IdentityLayer(nn.Module):
-  """Identity layer, convenient for giving a name to an array."""
+  """Identity layer, 배열에 이름 붙이기 쉽도록"""
 
   def apply(self, x):
     return x
 
-
+"""input에 positional embedding 넣는 class (optional)"""
 class AddPositionEmbs(nn.Module):
-  """Adds (optionally learned) positional embeddings to the inputs."""
 
   def apply(self, inputs, inputs_positions=None, posemb_init=None):
-    """Applies AddPositionEmbs module.
+    """AddPositionEmbs module
 
-    By default this layer uses a fixed sinusoidal embedding table. If a
-    learned position embedding is desired, pass an initializer to
-    posemb_init.
+    이 layer는 fixed sin파 embedding table 사용이 default.
+    학습된 position embedding이 요구되면, posemb_init에 initializer을 넘김.
 
     Args:
       inputs: input data.
-      inputs_positions: input position indices for packed sequences.
+      inputs_positions: packed sequences에 대한 input 위치 인덱스.
       posemb_init: positional embedding initializer.
 
     Returns:
       output: `(bs, timesteps, in_dim)`
     """
-    # inputs.shape is (batch_size, seq_len, emb_dim).
+    # inputs.shape : (batch_size, seq_len, emb_dim).
     assert inputs.ndim == 3, ('Number of dimensions should be 3,'
-                              ' but it is: %d' % inputs.ndim)
-    pos_emb_shape = (1, inputs.shape[1], inputs.shape[2])
+                              ' but it is: %d' % inputs.ndim) # 3차원 이상이 아니면 assertError
+    pos_emb_shape = (1, inputs.shape[1], inputs.shape[2]) # (1, seq_len, emb_dim)
     pe = self.param('pos_embedding', pos_emb_shape, posemb_init)
     if inputs_positions is None:
       # Normal unpacked case:
       return inputs + pe
     else:
-      # For packed data we need to use known position indices:
+      # For packed data (position indices를 써야할 때):
       return inputs + jnp.take(pe[0], inputs_positions, axis=0)
 
 
 class MlpBlock(nn.Module):
-  """Transformer MLP / feed-forward block."""
+  """Transformer MLP / feed-forward block"""
 
   def apply(self,
             inputs,
@@ -71,8 +56,8 @@ class MlpBlock(nn.Module):
             deterministic=True,
             kernel_init=nn.initializers.xavier_uniform(),
             bias_init=nn.initializers.normal(stddev=1e-6)):
-    """Applies Transformer MlpBlock module."""
-    actual_out_dim = inputs.shape[-1] if out_dim is None else out_dim
+    """Transformer MlpBlock module"""
+    actual_out_dim = inputs.shape[-1] if out_dim is None else out_dim # 없다면 input의 1-D 형태
     x = nn.Dense(
         inputs,
         mlp_dim,
@@ -102,19 +87,19 @@ class Encoder1DBlock(nn.Module):
             attention_dropout_rate=0.1,
             deterministic=True,
             **attention_kwargs):
-    """Applies Encoder1DBlock module.
+    """Encoder1DBlock module 적용
 
     Args:
       inputs: input data.
-      mlp_dim: dimension of the mlp on top of attention block.
-      dtype: the dtype of the computation (default: float32).
+      mlp_dim: attention block 상단에 있는 mlp 차원.
+      dtype: 계산의 dtype (default: float32).
       dropout_rate: dropout rate.
-      attention_dropout_rate: dropout for attention heads.
-      deterministic: bool, deterministic or not (to apply dropout).
-      **attention_kwargs: kwargs passed to nn.SelfAttention
+      attention_dropout_rate: attention heads의 dropout rate.
+      deterministic: bool (dropout 적용).
+      **attention_kwargs: kwargs은 nn.SelfAttention로 전해짐
 
     Returns:
-      output after transformer encoder block.
+      transformer encoder block의 output 값
     """
 
     # Attention block.
@@ -147,7 +132,7 @@ class Encoder1DBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-  """Transformer Model Encoder for sequence to sequence translation."""
+  """sequence 간 변환을 위한 Transformer Model Encoder"""
 
   def apply(self,
             inputs,
@@ -157,19 +142,19 @@ class Encoder(nn.Module):
             dropout_rate=0.1,
             train=False,
             **attention_kwargs):
-    """Applies Transformer model on the inputs.
+    """input에 Transformer model 적용.
 
     Args:
       inputs: input data
-      num_layers: number of layers
-      mlp_dim: dimension of the mlp on top of attention block
-      inputs_positions: input subsequence positions for packed examples.
+      num_layers: layer의 수
+      mlp_dim: mlp attention block 상단의 mlp의 차원
+      inputs_positions: 압축된 예들에 대한 input subsequence positions
       dropout_rate: dropout rate
-      train: if it is training,
-      **attention_kwargs: kwargs passed to nn.SelfAttention
+      train: training중인지 bool,
+      **attention_kwargs: kwargs은 nn.SelfAttention로 전해짐
 
     Returns:
-      output of a transformer encoder.
+      transformer encoder output
     """
     assert inputs.ndim == 3  # (batch, len, emb)
 
@@ -195,7 +180,7 @@ class Encoder(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-  """VisionTransformer."""
+  """VisionTransformer"""
 
   def apply(self,
             x,
@@ -208,18 +193,18 @@ class VisionTransformer(nn.Module):
             representation_size=None,
             classifier='gap'):
 
-    # (Possibly partial) ResNet root.
+    # ResNet root (부분적일 수 있음)
     if resnet is not None:
       width = int(64 * resnet.width_factor)
 
-      # Root block.
+      # Root block
       x = models_resnet.StdConv(
           x, width, (7, 7), (2, 2), bias=False, name='conv_root')
       x = nn.GroupNorm(x, name='gn_root')
       x = nn.relu(x)
       x = nn.max_pool(x, (3, 3), strides=(2, 2), padding='SAME')
 
-      # ResNet stages.
+      # ResNet stages
       x = models_resnet.ResNetStage(
           x, resnet.num_layers[0], width, first_stride=(1, 1), name='block1')
       for i, block_size in enumerate(resnet.num_layers[1:], 1):
@@ -232,7 +217,7 @@ class VisionTransformer(nn.Module):
 
     n, h, w, c = x.shape
 
-    # We can merge s2d+emb into a single conv; it's the same.
+    # s2d+emb를 single conv로
     x = nn.Conv(
         x,
         hidden_size, patches.size,
@@ -240,14 +225,14 @@ class VisionTransformer(nn.Module):
         padding='VALID',
         name='embedding')
 
-    # Here, x is a grid of embeddings.
+    # x : grid of embeddings
 
-    # (Possibly partial) Transformer.
+    # Transformer(부분적일 수 있음)
     if transformer is not None:
       n, h, w, c = x.shape
       x = jnp.reshape(x, [n, h * w, c])
 
-      # If we want to add a class token, add it here.
+      # class token 추가
       if classifier == 'token':
         cls = self.param('cls', (1, 1, c), nn.initializers.zeros)
         cls = jnp.tile(cls, [n, 1, 1])

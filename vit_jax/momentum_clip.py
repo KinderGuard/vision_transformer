@@ -1,16 +1,3 @@
-# Copyright 2020 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import flax
 import jax
@@ -19,9 +6,9 @@ import numpy as np
 
 
 class Optimizer(flax.optim.OptimizerDef):
-  """Momentum optimizer that stores state using half-precision."""
+  """Momentum optimizer(반정밀도를 이용한 state 저장)"""
 
-  @flax.struct.dataclass
+  @flax.struct.dataclass # 이 클래스의 instance들을 jax로 전달할 수 있도록 함.
   class HyperParams:
     learning_rate: np.ndarray
     beta: np.ndarray
@@ -41,7 +28,7 @@ class Optimizer(flax.optim.OptimizerDef):
     self.dtype = dict(bfloat16=jnp.bfloat16, float32=jnp.float32)[dtype]
 
   def init_param_state(self, param):
-    return Optimizer.State(jnp.zeros_like(param, dtype=self.dtype))
+    return Optimizer.State(jnp.zeros_like(param, dtype=self.dtype)) # momentum:0으로 초기화
 
   def apply_gradient(self, hyper_params, params, state, grads):
     step = state.step
@@ -67,10 +54,10 @@ class Optimizer(flax.optim.OptimizerDef):
     return new_params, new_state
 
   def apply_param_gradient(self, step, hyper_params, param, state, grad):
-    del step
+    del step # 지움
     assert hyper_params.learning_rate is not None, 'no learning rate provided.'
     momentum = state.momentum
-    new_momentum = hyper_params.beta * momentum + grad
+    new_momentum = hyper_params.beta * momentum + grad # 모멘텀 방정식
     new_param = param - hyper_params.learning_rate * new_momentum
     new_state = Optimizer.State(new_momentum.astype(self.dtype))
     return new_param, new_state
