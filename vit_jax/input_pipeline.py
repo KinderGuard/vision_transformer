@@ -21,12 +21,12 @@ import tensorflow_datasets as tfds
 
 import sys
 if sys.platform != 'darwin':
-  # A workaround to avoid crash because tfds may open to many files.
+  # tfds가 많은 파일에 열려서 생기는 충돌을 피하기 위한 방법
   import resource
   low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
   resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
 
-# Adjust depending on the available RAM.
+# 사용 가능한 RAM에 따라 조정
 MAX_IN_MEMORY = 200_000
 
 DATASET_PRESETS = {
@@ -74,25 +74,18 @@ def get_data(*,
              tfds_data_dir=None,
              tfds_manual_dir=None,
              inception_crop=True):
-  """Returns dataset for training/eval.
+  """학습과 검증을 위한 데이터셋 반환
 
   Args:
-    dataset: Dataset name. Additionally to the requirement that this dataset
-      must be in tensorflow_datasets, the dataset must be registered in
-      `DATASET_PRESETS` (specifying crop size etc).
-    mode: Must be "train" or "test".
-    repeats: How many times the dataset should be repeated. For indefinite
-      repeats specify None.
-    batch_size: Global batch size. Note that the returned dataset will have
-      dimensions [local_devices, batch_size / local_devices, ...].
-    mixup_alpha: Coefficient for mixup combination. See 
-      https://arxiv.org/abs/1710.09412
-    shuffle_buffer: Number of elements to preload the shuffle buffer with.
-    tfds_data_dir: Optional directory where tfds datasets are stored. If not
-      specified, datasets are downloaded and in the default tfds data_dir on the
-      local machine.
-    inception_crop: If set to True, tf.image.sample_distorted_bounding_box()
-      will be used. If set to False, tf.image.random_crop() will be used.
+    dataset: 데이터셋 이름. 이 데이터셋이 tensorflow_datasets에 있어야 한다는 조건 외에도 `DATASET_PRESETS`(crop 크기 지정 등)에 등록되어 있어야 한다.
+    mode: "train" 또는 "test".
+    repeats: 데이터셋이 몇 번 반복되어야 하는지. 무한 반복일 경우 None 지정
+    batch_size: Global batch size. 반환되는 데이터셋은 [local_devices, batch_size / local_devices, ...]의 차원을 가져야 함.
+    mixup_alpha: 혼합 조합에 대한 계수.
+      https://arxiv.org/abs/1710.09412 참고
+    shuffle_buffer: shuffle buffer를 사전 로드할 element의 수
+    tfds_data_dir: tdfs가 저장되는 선택적 디렉토리. 지정하지 않으면 데이터셋이 다운로드 되어 로컬 시스템의 기본 tdfs data_dir에 저장된다.
+    inception_crop: True면 tf.image.sample_distorted_bounding_box()사용. False면 tf.image.random_crop() 사용.
   """
 
   preset = DATASET_PRESETS.get(dataset)
@@ -122,8 +115,8 @@ def get_data(*,
             min_object_covered=0,  # Don't enforce a minimum area.
             use_image_if_no_bounding_boxes=True)
         im = tf.slice(im, begin, size)
-        # Unfortunately, the above operation loses the depth-dimension. So we
-        # need to restore it the manual way.
+        # 위의 연산은 depth-dimension 잃음
+        # 수동으로 복원해야 한다.
         im.set_shape([None, None, channels])
         im = tf.image.resize(im, [crop_size, crop_size])
       else:
@@ -131,7 +124,7 @@ def get_data(*,
         im = tf.image.random_crop(im, [crop_size, crop_size, 3])
         im = tf.image.flip_left_right(im)
     else:
-      # usage of crop_size here is intentional
+      # 여기서 crop_size의 사용은 의독적임
       im = tf.image.resize(im, [crop_size, crop_size])
     im = (im - 127.5) / 127.5
     label = tf.one_hot(data['label'], dataset_info['num_classes'])  # pylint: disable=no-value-for-parameter
@@ -155,7 +148,7 @@ def get_data(*,
   if mixup_alpha is not None and mixup_alpha > 0.0 and mode == 'train':
     data = data.map(_mixup, tf.data.experimental.AUTOTUNE)
 
-  # Shard data such that it can be distributed accross devices
+  # 여러장치에 배포할 수 있는 데이터
   num_devices = jax.local_device_count()
 
   def _shard(data):
@@ -172,7 +165,7 @@ def get_data(*,
 
 
 def prefetch(dataset, n_prefetch):
-  """Prefetches data to device and converts to numpy array."""
+  """장치에 데이터를 미리 가져오고 numpy 배열로 변환한다."""
   ds_iter = iter(dataset)
   ds_iter = map(lambda x: jax.tree_map(lambda t: np.asarray(memoryview(t)), x),
                 ds_iter)
